@@ -96,6 +96,18 @@ impl ArrowFlightEndpoint {
                 let proto_node = PhysicalPlanNode::try_decode(doget.plan_proto.as_ref())?;
                 let plan = proto_node.try_into_physical_plan(&ctx, &self.runtime, &codec)?;
 
+                // Apply only the instrumentation rule to the deserialized plan.
+                let plan = session_state
+                    .physical_optimizers()
+                    .iter()
+                    .filter(|optimizer| {
+                        // Only apply the instrumentation rule
+                        optimizer.name() == "Instrument"
+                    })
+                    .try_fold(plan, |plan, optimizer| {
+                        optimizer.optimize(plan, session_state.config().options())
+                    })?;
+
                 // Initialize partition count to the number of partitions in the stage
                 let total_partitions = plan.properties().partitioning.partition_count();
                 Ok::<_, DataFusionError>(TaskData {
